@@ -43,7 +43,6 @@ def rank_instances(
     provider: str = "aws",
     region: str = "us-west-2",
     n_results: int = 5,
-    total_steps: int | None = None,
     use_spot: bool = True,
     min_gpus: int = 1,
 ) -> list[RankedInstance]:
@@ -92,14 +91,6 @@ def rank_instances(
         throughput = inst.throughput_score
         efficiency = throughput / effective_per_hr if effective_per_hr > 0 else 0
 
-        est_hours = None
-        est_cost = None
-        if total_steps is not None:
-            base_steps_per_hr = 60.0
-            steps_per_hr = base_steps_per_hr * throughput
-            est_hours = total_steps / steps_per_hr if steps_per_hr > 0 else None
-            est_cost = est_hours * effective_per_hr if est_hours else None
-
         ranked.append(RankedInstance(
             rank=0,
             instance=inst,
@@ -110,8 +101,8 @@ def rank_instances(
             vram_gb=inst.total_vram_gb,
             throughput_score=throughput,
             cost_efficiency=efficiency,
-            est_hours=est_hours,
-            est_cost=est_cost,
+            est_hours=None,
+            est_cost=None,
             availability_note=note,
         ))
 
