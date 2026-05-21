@@ -60,20 +60,28 @@ def _render_table(ranked, mode: str, vram_req: float, budget: float,
     lines.append(f"  Prices: {price_source} | Throughput: relative estimates (A100 40GB = 1.0)")
     lines.append("")
 
-    header = f"  {'#':>2}  {'Instance':<22} {'GPUs':<18} {'VRAM':>6}  {'$/hr':>6}  {'Eff':>5}"
+    has_spot = any(r.spot_per_hr is not None for r in ranked)
+    header = (
+        f"  {'#':>2}  {'Instance':<22} {'GPUs':<18} {'VRAM':>6}  "
+        f"{'On-demand':>9}  {'Spot':>6}  {'Eff':>5}"
+    )
     if total_steps:
         header += f"  {'Est.hrs':>8}  {'Est.$':>7}"
     lines.append(header)
     lines.append("  " + "─" * (len(header) - 2))
 
+    needs_quota = []
     for r in ranked:
         gpu_str = f"{r.instance.n_gpus}×{r.instance.gpu_name}"
-        spot_tag = "†" if r.is_spot else " "
+        spot_str = f"${r.spot_per_hr:.2f}" if r.spot_per_hr is not None else "   n/a"
+        active_tag = "◀" if r.is_spot else " "
+        quota_tag = "‡" if r.availability_note == "needs quota request" else " "
         tag = " ← best" if r.rank == 1 else ""
         row = (
             f"  {r.rank:>2}  {r.instance.name:<22} {gpu_str:<18} "
-            f"{r.vram_gb:>5.0f}G  {r.effective_per_hr:>6.2f}{spot_tag} "
-            f"{r.cost_efficiency:>5.2f}"
+            f"{r.vram_gb:>5.0f}G  "
+            f"${r.on_demand_per_hr:>7.2f}  {spot_str:>6}{active_tag} "
+            f"{r.cost_efficiency:>5.2f}{quota_tag}"
         )
         if total_steps:
             hrs = f"{r.est_hours:.1f}h" if r.est_hours else "  ?"
@@ -81,9 +89,17 @@ def _render_table(ranked, mode: str, vram_req: float, budget: float,
             row += f"  {hrs:>8}  {cost:>7}"
         row += tag
         lines.append(row)
+        if quota_tag == "‡":
+            needs_quota.append(r.instance.name)
 
+    footnotes = []
     if any(r.is_spot for r in ranked):
-        lines.append("\n  † spot price — may not always be available; on-demand shown as fallback")
+        footnotes.append("  ◀ spot price active — managed spot may interrupt; checkpoint frequently")
+    if needs_quota:
+        footnotes.append(f"  ‡ quota=0 in your account — request via AWS Service Quotas before use")
+    if footnotes:
+        lines.append("")
+        lines.extend(footnotes)
     return "\n".join(lines)
 
 
@@ -167,7 +183,7 @@ def recommend(
     try:
         from gpupick.providers.aws import get_live_sagemaker_prices
         live = get_live_sagemaker_prices(region)
-        price_source = "live AWS pricing" if live else "static fallback"
+        price_source = "live AWS Training pricing + EC2 spot" if live else "static fallback"
     except Exception:
         pass
 
